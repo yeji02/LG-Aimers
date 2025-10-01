@@ -16,15 +16,15 @@
 ---
 
 ## 📌 주제
-**리조트 내 식음업장 메뉴별 1주일 수요 예측 AI 모델 개발**
+리조트 내 식음업장 메뉴별 **1주일 수요 예측 AI 모델 개발**
 
 ---
 
 ## 🧮 평가 방식
 
-- **평가지표**: 식음업장별 가중치가 있는 SMAPE
-- '담하'와 '미라시아' 업장은 다른 업장보다 높은 가중치로 반영됩니다.
-- 업장별 가중치 값은 비공개이며, 실제 매출 수량이 0인 경우에는 평가 산식에서 제외됩니다.
+- 평가지표: 식음업장별 가중치가 있는 **SMAPE**
+- '담하'와 '미라시아' 업장은 다른 업장보다 높은 가중치로 반영
+- 업장별 가중치 값은 비공개이며, 실제 매출 수량이 0인 경우에는 평가 산식에서 제외됨
 
 <p align="center">
   <img width="433" height="60" alt="evaluation_formula_1" src="https://github.com/user-attachments/assets/faf4c249-731e-4110-b71e-468b177c76b9" />
@@ -41,34 +41,31 @@
 
 ## 📂 데이터 구성
 
-### 📁 `train/`
-- **`train.csv`**
-  - 기간: 2023.01.01 ~ 2024.06.15
-  - 영업장명_메뉴명별 매출 수량 정보
-  - 컬럼 예시:
-    - `영업일자`
-    - `영업장명_메뉴명`
-    - `매출수량`
+### 📁 train/
+- 기간: 2023.01.01 ~ 2024.06.15  
+- 영업장명_메뉴명별 매출 수량 정보 포함  
+- 주요 컬럼
+  - `영업일자`
+  - `영업장명_메뉴명`
+  - `매출수량`
 
 ---
 
-### 📁 `test/`
-- **`TEST_00.csv` ~ `TEST_09.csv`**
-  - 기간: 2025년 특정 시점(28일)
-  - 영업장명_메뉴명별 매출 수량 정보
-  - 컬럼 예시:
-    - `영업일자`
-    - `영업장명_메뉴명`
-    - `매출수량`
+### 📁 test/
+- 파일: `TEST_00.csv` ~ `TEST_09.csv`  
+- 기간: 2025년 특정 시점(28일)  
+- 영업장명_메뉴명별 매출 수량 정보 포함  
+- 주요 컬럼
+  - `영업일자`
+  - `영업장명_메뉴명`
+  - `매출수량`
 
 ---
 
-### 📄 `sample_submission.csv`
-- 제출 양식 파일
-- 각 영업장명_메뉴명의 TEST 파일별 **+1일~+7일 매출 수량 예측 결과** 포함
-- 예시:
-  - TEST_00+1일, TEST_00+2일, ..., TEST_00+7일
-  - TEST_01+1일, TEST_01+2일, ..., TEST_09+7일
+### 📄 sample_submission.csv
+- 제출 양식 파일  
+- 각 영업장명_메뉴명의 TEST 파일별 **+1일~+7일 매출 수량 예측 결과** 포함  
+- 예시: TEST_00+1일, TEST_00+2일, ..., TEST_00+7일
 
 ---
 
@@ -81,7 +78,57 @@
 
 ---
 
+## 🧠 모델 개요
+
+본 프로젝트에서는 시계열 예측을 위해 **Temporal Convolutional Network (TCN)** 기반 모델을 적용했습니다.  
+TCN은 dilated causal convolution을 활용해 긴 시계열 패턴을 효율적으로 학습할 수 있으며,  
+RNN 계열 모델보다 병렬 연산이 가능하고 안정적인 학습이 가능합니다.
+
+### Global TCN 구조
+- 메뉴(Item) 임베딩과 수치형·피처 입력을 결합해 학습
+- dilated convolution을 반복 적용한 multi-level TCN 구조
+- 마지막 시점의 hidden state를 기반으로 향후 7일 수요를 예측
+
+---
+
+## ⚙️ 학습 방식
+
+### 1. H=1(Recursive) 학습 + 7-step Unroll 보조 손실
+- 1-step 예측 손실에 더해, **7일 동안 예측을 반복(unroll)** 하며 보조 손실을 부여하여 장기 예측 안정성을 확보
+- Scheduled Sampling을 적용해 학습 시 실제값과 예측값을 혼합, 학습-추론 간 분포 차이를 완화
+
+---
+
+### 2. MIMO + Recursive 앙상블 (α-calibration)
+- **MIMO 모델**: 7일치를 한 번에 예측
+- **Recursive 모델**: 하루씩 순차 예측
+- 백테스트 데이터로 shop-weighted SMAPE를 최소화하는 **α 값을 보정**하여  
+  과적합을 방지하고 일반화 성능을 향상
+
+---
+
+### 3. 학습 안정화 기법
+- Optimizer: AdamW  
+- Scheduler: Cosine Annealing  
+- Early Stopping 적용 (Patience=10)  
+- Gradient Clipping (Norm=1.0)  
+- Mixed Precision 학습(torch.cuda.amp)으로 학습 안정성 및 속도 개선
+
+---
+
+## 🧪 모델 요약
+
+| 항목 | 내용 |
+|------|------|
+| 모델 | Temporal Convolutional Network (TCN) |
+| 예측 방식 | MIMO + Recursive 앙상블 |
+| 보조 손실 | 7-step Unroll + Scheduled Sampling |
+| 튜닝 방식 | α-calibration (shop-weighted SMAPE 최소화) |
+| 학습 안정화 | Early stopping, Grad clipping, AMP |
+
+---
+
 ## 📌 참고
-- LG Aimers 공식 대회 페이지: [https://www.lgaimers.ai](https://www.lgaimers.ai)
+- LG Aimers 공식 대회 페이지: [https://www.lgaimers.ai](https://www.lgaimers.ai)  
 - 곤지암 리조트: [https://www.konjiamresort.co.kr](https://www.konjiamresort.co.kr)
 
